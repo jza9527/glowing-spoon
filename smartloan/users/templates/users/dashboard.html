@@ -1,0 +1,334 @@
+{% extends "base.html" %}
+
+{% block title %}控制台 - SmartLoan{% endblock %}
+
+{% block content %}
+  <main class="p-6 overflow-auto bg-gray-50">
+  <!-- 欢迎和概览 -->
+  <div class="mb-6">
+    <h1 class="text-2xl font-bold text-gray-800">信贷评分控制台</h1>
+    <p class="text-gray-600">今日关键指标概览</p>
+  </div>
+
+  <!-- KPI 卡片 -->
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+    <div class="bg-white rounded-xl shadow p-6">
+      <div class="flex justify-between items-center">
+        <div>
+          <p class="text-gray-500 text-sm">总贷款申请</p>
+          <h3 class="text-2xl font-bold mt-1">{{ total_applications }}</h3>
+        </div>
+        <div class="bg-blue-100 p-3 rounded-full">
+          <i class="fas fa-file-invoice text-blue-500 text-xl"></i>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow p-6">
+      <div class="flex justify-between items-center">
+        <div>
+          <p class="text-gray-500 text-sm">审批通过率</p>
+          <h3 class="text-2xl font-bold mt-1">{{ approval_rate }}%</h3>
+        </div>
+        <div class="bg-green-100 p-3 rounded-full">
+          <i class="fas fa-check-circle text-green-500 text-xl"></i>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow p-6">
+      <div class="flex justify-between items-center">
+        <div>
+          <p class="text-gray-500 text-sm">平均风险评分</p>
+          <h3 class="text-2xl font-bold mt-1">{{ avg_credit_score }}</h3>
+        </div>
+        <div class="bg-purple-100 p-3 rounded-full">
+          <i class="fas fa-chart-line text-purple-500 text-xl"></i>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow p-6">
+      <div class="flex justify-between items-center">
+        <div>
+          <p class="text-gray-500 text-sm">逾期率</p>
+          <h3 class="text-2xl font-bold mt-1">{{ overdue_rate }}%</h3>
+        </div>
+        <div class="bg-red-100 p-3 rounded-full">
+          <i class="fas fa-exclamation-triangle text-red-500 text-xl"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 图表区域 -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+    <!-- 信用等级分布 -->
+    <div class="bg-white rounded-xl shadow p-6">
+      <h3 class="text-lg font-semibold text-gray-800 mb-4">信用等级分布</h3>
+      <div class="h-72">
+        <canvas id="creditDistributionChart"></canvas>
+      </div>
+    </div>
+
+    <!-- 贷款申请趋势 -->
+    <div class="bg-white rounded-xl shadow p-6">
+      <h3 class="text-lg font-semibold text-gray-800 mb-4">贷款申请趋势 (近30天)</h3>
+      <div class="h-72">
+        <canvas id="applicationTrendChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- 第二行图表 -->
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+    <!-- 风险评分分布 -->
+    <div class="bg-white rounded-xl shadow p-6">
+      <h3 class="text-lg font-semibold text-gray-800 mb-4">风险评分分布</h3>
+      <div class="h-64">
+        <canvas id="riskScoreChart"></canvas>
+      </div>
+    </div>
+
+    <!-- 审批状态 -->
+    <div class="bg-white rounded-xl shadow p-6">
+      <h3 class="text-lg font-semibold text-gray-800 mb-4">审批状态</h3>
+      <div class="h-64 flex items-center justify-center">
+        <canvas id="approvalStatusChart" class="max-h-56"></canvas>
+      </div>
+    </div>
+
+    <!-- 信用评分变化 -->
+    <div class="bg-white rounded-xl shadow p-6">
+      <h3 class="text-lg font-semibold text-gray-800 mb-4">信用评分变化趋势</h3>
+      <div class="h-64">
+        <canvas id="scoreTrendChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- 近期申请 -->
+  <div class="bg-white rounded-xl shadow p-6">
+    <div class="flex justify-between items-center mb-4">
+      <h3 class="text-lg font-semibold text-gray-800">近期贷款申请</h3>
+      <a href="#" class="text-sm text-blue-500 hover:text-blue-700">查看全部</a>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">申请ID</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">客户姓名</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">申请金额</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">信用评分</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">状态</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">申请日期</th>
+          </tr>
+        </thead>
+        <tbody class="bg-white divide-y divide-gray-200">
+          {% for loan in recent_loans %}
+            <tr>
+              <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ loan.loan_id }}</td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ loan.customer_name }}</td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ loan.application_amount }}</td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ loan.credit_score }}</td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ loan.status }}</td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ loan.application_date }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script>
+  const creditCtx = document.getElementById('creditDistributionChart').getContext('2d');
+  const creditChart = new Chart(creditCtx, {
+    type: 'pie',
+    data: {
+      labels: [
+        {% for row in score_distribution %}
+          "{{ row.credit_score_range }}"{% if not forloop.last %},{% endif %}
+        {% endfor %}
+      ],
+      datasets: [{
+        data: [
+          {% for row in score_distribution %}
+            {{ row.count }}{% if not forloop.last %},{% endif %}
+          {% endfor %}
+        ],
+        backgroundColor: ['#10B981', '#34D399', '#6EE7B7', '#93C5FD', '#60A5FA', '#FBBF24', '#F87171', '#EF4444'],
+        borderWidth: 1
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'right',
+          labels: {
+            font: { size: 11 },
+            padding: 15
+          }
+        }
+      }
+    }
+  });
+</script>
+<!-- 信用等级分布 -->
+<script>
+  const creditCtx = document.getElementById('creditDistributionChart').getContext('2d');
+  new Chart(creditCtx, {
+    type: 'pie',
+    data: {
+      labels: [
+        {% for row in score_distribution %}
+          "{{ row.credit_score_range }}"{% if not forloop.last %},{% endif %}
+        {% endfor %}
+      ],
+      datasets: [{
+        data: [
+          {% for row in score_distribution %}
+            {{ row.count }}{% if not forloop.last %},{% endif %}
+          {% endfor %}
+        ],
+        backgroundColor: ['#4CAF50', '#2196F3', '#9C27B0', '#F44336', '#FFEB3B', '#FF9800', '#FF5722', '#00BCD4'],
+        borderWidth: 1
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position: 'right' } }
+    }
+  });
+</script>
+
+
+<!-- 贷款申请趋势 -->
+<script>
+  const appTrendCtx = document.getElementById('applicationTrendChart').getContext('2d');
+  new Chart(appTrendCtx, {
+    type: 'line',
+    data: {
+      labels: [
+        {% for row in application_trend reversed %}
+          "{{ row.formatted_date }}"{% if not forloop.last %},{% endif %}
+        {% endfor %}
+      ],
+      datasets: [{
+        label: '申请数量',
+        data: [
+          {% for row in application_trend reversed %}
+            {{ row.count }}{% if not forloop.last %},{% endif %}
+          {% endfor %}
+        ],
+        fill: false,
+        borderColor: '#3B82F6',
+        tension: 0.3,
+        pointRadius: 3
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: { x: { display: true }, y: { beginAtZero: true } }
+    }
+  });
+</script>
+
+<!-- 风险评分分布 -->
+<script>
+  const riskScoreCtx = document.getElementById('riskScoreChart').getContext('2d');
+  new Chart(riskScoreCtx, {
+    type: 'bar',
+    data: {
+      labels: [
+        {% for row in risk_score_distribution %}
+          "{{ row.risk_score_range }}"{% if not forloop.last %},{% endif %}
+        {% endfor %}
+      ],
+      datasets: [{
+        label: '数量',
+        data: [
+          {% for row in risk_score_distribution %}
+            {{ row.count }}{% if not forloop.last %},{% endif %}
+          {% endfor %}
+        ],
+        backgroundColor: '#F59E0B'
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: { y: { beginAtZero: true } }
+    }
+  });
+</script>
+
+<!-- 审批状态 -->
+<script>
+  const approvalStatusCtx = document.getElementById('approvalStatusChart').getContext('2d');
+  new Chart(approvalStatusCtx, {
+    type: 'doughnut',
+    data: {
+      labels: [
+        {% for row in approval_status_distribution %}
+          "{{ row.status }}"{% if not forloop.last %},{% endif %}
+        {% endfor %}
+      ],
+      datasets: [{
+        data: [
+          {% for row in approval_status_distribution %}
+            {{ row.count }}{% if not forloop.last %},{% endif %}
+          {% endfor %}
+        ],
+        backgroundColor: ['#22C55E', '#3B82F6', '#F97316', '#EF4444'],
+        borderWidth: 1
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom' } }
+    }
+  });
+</script>
+
+<!-- 信用评分变化趋势 -->
+<script>
+  const scoreTrendCtx = document.getElementById('scoreTrendChart').getContext('2d');
+  new Chart(scoreTrendCtx, {
+    type: 'line',
+    data: {
+      labels: [
+        {% for row in score_trend %}
+          "{{ row.month }}"{% if not forloop.last %},{% endif %}
+        {% endfor %}
+      ],
+      datasets: [{
+        label: '平均信用评分',
+        data: [
+          {% for row in score_trend %}
+            {{ row.avg_score }}{% if not forloop.last %},{% endif %}
+          {% endfor %}
+        ],
+        fill: false,
+        borderColor: '#8B5CF6',
+        tension: 0.3,
+        pointRadius: 3
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: { y: { beginAtZero: false } }
+    }
+  });
+</script>
+
+</body>
+</html>
+{% endblock %}

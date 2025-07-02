@@ -1,0 +1,76 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>信贷评分系统登录</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* 自定义 clip-path 三角遮罩 */
+    .clip-triangle {
+      clip-path: polygon(0 0, 85% 0, 70% 100%, 0% 100%);
+    }
+
+    .gradient-overlay {
+      background: linear-gradient(to right, rgba(255,255,255,0.0), rgba(255,255,255,1));
+      z-index: 10;
+    }
+  </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+
+  <div class="flex w-full max-w-6xl h-[600px] bg-white shadow-xl rounded-lg overflow-hidden relative">
+
+    <!-- 左侧图像部分 -->
+    <div class="relative w-1/2 hidden md:block">
+      <img src="https://images.unsplash.com/photo-1563013544-824ae1b704d3?auto=format&fit=crop&w=1200&q=80"
+           alt="金融背景图"
+           class="h-full w-full object-cover" />
+
+      <!-- 三角遮罩 -->
+      <div class="absolute inset-0 clip-triangle gradient-overlay"></div>
+    </div>
+
+    <!-- 右侧表单 -->
+    <div class="w-full md:w-1/2 p-10 flex flex-col justify-center">
+      <h2 class="text-3xl font-bold text-blue-700 text-center mb-2">信贷评分管理系统</h2>
+      <p class="text-gray-600 text-center mb-6">请输入账号信息以继续</p>
+
+      <form method="POST" class="space-y-5">
+        {% csrf_token %}
+
+        <div>
+          <label for="username" class="block text-sm font-medium text-gray-700">用户名</label>
+          <input id="username" name="username" type="text" required
+                 class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500">
+        </div>
+
+        <div>
+          <label for="password" class="block text-sm font-medium text-gray-700">密码</label>
+          <input id="password" name="password" type="password" required
+                 class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500">
+        </div>
+
+        <div class="flex justify-between text-sm text-gray-600">
+          <label class="flex items-center">
+            <input type="checkbox" class="form-checkbox text-blue-600">
+            <span class="ml-2">记住我</span>
+          </label>
+          <a href="#" class="text-blue-600 hover:underline">忘记密码？</a>
+        </div>
+
+        <button type="submit"
+                class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-md font-semibold transition">
+          登录
+        </button>
+      </form>
+
+      <p class="text-sm text-center text-gray-500 mt-6">
+        没有账户？<a href="#" class="text-blue-600 hover:underline">创建一个</a>
+      </p>
+    </div>
+  </div>
+
+</body>
+</html>
