@@ -1,18 +1,9 @@
 from django.shortcuts import render, redirect
-from django.http import HttpResponse
-from django.http import JsonResponse
-import pymysql
-
-def connect_db():
-    connection = pymysql.connect(
-        host='localhost',
-        user='django_user',
-        password='123456',
-        database='smartloan_db',
-        cursorclass=pymysql.cursors.DictCursor,
-        charset='utf8'
-    )
-    return connection
+from django.http import HttpResponse, JsonResponse
+from django.db.models import Avg, Count
+from django.db.models.functions import Extract
+from .models import Customer, CreditRating, LoanApplication, Guarantor, LoanStatus, CustomUser
+import datetime
 
 # 登录页面视图
 def login_view(request):
@@ -20,134 +11,115 @@ def login_view(request):
         username = request.POST.get('username')
         password = request.POST.get('password')
 
-        # 查询用户是否存在
-        connection = connect_db()
-        cursor = connection.cursor()
-        cursor.execute("SELECT * FROM custom_user WHERE username = %s", (username,))
-        user = cursor.fetchone()
-
-        if user:
-            if password == user['password']:
-                request.session['username'] = user['username']
+        try:
+            # 查询用户是否存在
+            user = CustomUser.objects.get(username=username)
+            if password == user.password:
+                request.session['username'] = user.username
                 return redirect('dashboard')
             else:
                 return HttpResponse("密码错误！")
-        else:
+        except CustomUser.DoesNotExist:
             return HttpResponse("用户名不存在！")
 
     return render(request, 'users/login.html')
 
 def loan_dashboard():
     try:
-        connection = connect_db()
-        print("Database connection successful")
-        cursor = connection.cursor()
-
         # 总申请数
-        cursor.execute("SELECT COUNT(*) FROM LoanApplication")
-        res = cursor.fetchone()
-        total_applications = res['COUNT(*)']
+        total_applications = LoanApplication.objects.count()
         print(f"Total Applications: {total_applications}")
 
         # 审批通过率
-        cursor.execute("SELECT COUNT(*) FROM LoanApplication WHERE status='approved'")
-        res = cursor.fetchone()
-        approved_applications = res['COUNT(*)']
+        approved_applications = LoanApplication.objects.filter(status='approved').count()
         approval_rate = round((approved_applications / total_applications) * 100, 2) if total_applications > 0 else 0
         print(f"Approved Applications: {approved_applications}, Approval Rate: {approval_rate}%")
 
         # 平均信用评分
-        cursor.execute("SELECT AVG(credit_score) FROM CreditRating")
-        res = cursor.fetchone()
-        avg_credit_score = round(res['AVG(credit_score)'], 2) if res['AVG(credit_score)'] is not None else 0
+        avg_credit_score_result = CreditRating.objects.aggregate(avg_score=Avg('credit_score'))
+        avg_credit_score = round(avg_credit_score_result['avg_score'], 2) if avg_credit_score_result['avg_score'] is not None else 0
         print(f"Average Credit Score: {avg_credit_score}")
 
         # 逾期率
-        cursor.execute("SELECT COUNT(*) FROM LoanApplication WHERE overdue=1")
-        res = cursor.fetchone()
-        overdue_count = res['COUNT(*)']
+        overdue_count = LoanApplication.objects.filter(overdue=1).count()
         overdue_rate = round((overdue_count / total_applications) * 100, 2) if total_applications > 0 else 0
         print(f"Overdue Applications: {overdue_count}, Overdue Rate: {overdue_rate}%")
 
         # 信用评分分布
-        cursor.execute("SELECT credit_score_range, COUNT(*) FROM CreditRating GROUP BY credit_score_range")
-        score_distribution_raw = cursor.fetchall()
+        score_distribution_raw = CreditRating.objects.values('credit_score_range').annotate(count=Count('credit_score_range'))
         score_distribution = [
-            {'credit_score_range': row['credit_score_range'], 'count': row['COUNT(*)']}
-            for row in score_distribution_raw
+            {'credit_score_range': item['credit_score_range'], 'count': item['count']}
+            for item in score_distribution_raw
         ]
         print(f"Credit Score Distribution: {score_distribution}")
 
         # 贷款申请趋势（近30天）
-        cursor.execute("""
-            SELECT DATE_FORMAT(application_date, '%Y-%m-%d') AS formatted_date, COUNT(*) 
-            FROM LoanApplication 
-            GROUP BY formatted_date 
-            ORDER BY formatted_date DESC 
-            LIMIT 30
-        """)
-        application_trend_raw = cursor.fetchall()
+        # SQLite 不支持 DATE_FORMAT，所以我们使用 Python 来格式化日期
+        application_trend_raw = (LoanApplication.objects
+                               .filter(application_date__isnull=False)
+                               .values('application_date')
+                               .annotate(count=Count('application_date'))
+                               .order_by('-application_date')[:30])
+        
         application_trend = [
-            {'formatted_date': row['formatted_date'], 'count': row['COUNT(*)']}
-            for row in application_trend_raw
+            {'formatted_date': str(item['application_date']), 'count': item['count']}
+            for item in application_trend_raw
         ]
         print(f"Application Trend: {application_trend}")
 
         # 风险评分分布
-        cursor.execute("SELECT risk_score_range, COUNT(*) FROM CreditRating GROUP BY risk_score_range")
-        risk_score_distribution_raw = cursor.fetchall()
+        risk_score_distribution_raw = CreditRating.objects.values('risk_score_range').annotate(count=Count('risk_score_range'))
         risk_score_distribution = [
-            {'risk_score_range': row['risk_score_range'], 'count': row['COUNT(*)']}
-            for row in risk_score_distribution_raw
+            {'risk_score_range': item['risk_score_range'], 'count': item['count']}
+            for item in risk_score_distribution_raw
         ]
         print(f"Risk Score Distribution: {risk_score_distribution}")
 
         # 审批状态分布
-        cursor.execute("SELECT status, COUNT(*) FROM LoanApplication GROUP BY status")
-        approval_status_raw = cursor.fetchall()
+        approval_status_raw = LoanApplication.objects.values('status').annotate(count=Count('status'))
         approval_status_distribution = [
-            {'status': row['status'], 'count': row['COUNT(*)']}
-            for row in approval_status_raw
+            {'status': item['status'], 'count': item['count']}
+            for item in approval_status_raw
         ]
         print(f"Approval Status Distribution: {approval_status_distribution}")
 
         # 贷款申请信用评分趋势（按月统计）
-        cursor.execute("""
-            SELECT MONTH(application_date) AS month, AVG(CreditRating.credit_score) AS avg_score 
-            FROM LoanApplication
-            JOIN CreditRating ON LoanApplication.customer_id = CreditRating.customer_id
-            GROUP BY month
-            ORDER BY month ASC  -- 确保按月份升序排序
-        """)
-        score_trend_raw = cursor.fetchall()
+        # 使用 Django ORM 的 Extract 来提取月份
+        score_trend_raw = (LoanApplication.objects
+                          .filter(application_date__isnull=False)
+                          .annotate(month=Extract('application_date', 'month'))
+                          .values('month')
+                          .annotate(avg_score=Avg('customer__creditrating__credit_score'))
+                          .order_by('month'))
+        
         score_trend = [
-            {'month': f"{row['month']}月", 'avg_score': round(row['avg_score'], 2) if row['avg_score'] is not None else 0}
-            for row in score_trend_raw
+            {'month': f"{item['month']}月", 'avg_score': round(item['avg_score'], 2) if item['avg_score'] is not None else 0}
+            for item in score_trend_raw
         ]
         print(f"Credit Score Trend: {score_trend}")
 
         # 近期贷款申请（近5条记录）
-        cursor.execute("""
-            SELECT loan_id, customer_name, application_amount, CreditRating.credit_score, status, application_date 
-            FROM LoanApplication
-            JOIN Customer ON LoanApplication.customer_id = Customer.customer_id
-            JOIN CreditRating ON LoanApplication.customer_id = CreditRating.customer_id
-            ORDER BY application_date DESC LIMIT 5
-        """)
-        recent_loans_raw = cursor.fetchall()
-        recent_loans = [
-            {'loan_id': row['loan_id'], 'customer_name': row['customer_name'], 'application_amount': row['application_amount'],
-             'credit_score': row['credit_score'], 'status': row['status'], 'application_date': row['application_date']}
-            for row in recent_loans_raw
-        ]
+        recent_loans_raw = (LoanApplication.objects
+                           .select_related('customer')
+                           .prefetch_related('customer__creditrating_set')
+                           .order_by('-application_date')[:5])
+        
+        recent_loans = []
+        for loan in recent_loans_raw:
+            credit_rating = loan.customer.creditrating_set.first()
+            recent_loans.append({
+                'loan_id': loan.loan_id,
+                'customer_name': loan.customer.customer_name,
+                'application_amount': loan.application_amount,
+                'credit_score': credit_rating.credit_score if credit_rating else None,
+                'status': loan.status,
+                'application_date': loan.application_date
+            })
         print(f"Recent Loans: {recent_loans}")
 
     except Exception as e:
         print(f"Error occurred while fetching loan data: {e}")
         return {}
-
-    finally:
-        connection.close()
 
     return {
         'total_applications': total_applications,
@@ -164,7 +136,7 @@ def loan_dashboard():
 
 
 def dashboard_view(request):
-    username = request.session.get('username', '访客')  # 默认值是“访客”
+    username = request.session.get('username', '访客')  # 默认值是"访客"
 
     # 调用 loan_dashboard 获取数据
     data = loan_dashboard()
@@ -181,29 +153,23 @@ def dashboard_view(request):
 
 def customer_list(request):
     username = request.session.get('username', '访客')
-    connection = connect_db()
-    with connection.cursor() as cursor:
-        cursor.execute("""
-            SELECT customer_id, customer_name, gender, birth_date,
-                   occupation, email, phone_number, address, created_at
-            FROM Customer
-            ORDER BY created_at DESC
-        """)
-        rows = cursor.fetchall()
-
-    # 重命名键为模板中需要的字段名
+    
+    # 使用 Django ORM 查询客户列表
+    customers_raw = Customer.objects.all().order_by('-created_at')
+    
+    # 转换为模板需要的格式
     customers = []
-    for row in rows:
+    for customer in customers_raw:
         customers.append({
-            'id': row['customer_id'],
-            'name': row['customer_name'],
-            'gender': row['gender'],
-            'birth_date': row['birth_date'],
-            'occupation': row['occupation'],
-            'email': row['email'],
-            'phone': row['phone_number'],
-            'address': row['address'],
-            'created_at': row['created_at'],
+            'id': customer.customer_id,
+            'name': customer.customer_name,
+            'gender': customer.gender,
+            'birth_date': customer.birth_date,
+            'occupation': customer.occupation,
+            'email': customer.email,
+            'phone': customer.phone_number,
+            'address': customer.address,
+            'created_at': customer.created_at,
         })
 
     return render(request, 'users/customer_list.html', {
@@ -212,34 +178,34 @@ def customer_list(request):
     })
 
 
-# views.py
 def customer_detail(request, customer_id):
-    connection = connect_db()
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT customer_name FROM Customer WHERE customer_id = %s", (customer_id,))
-        customer = cursor.fetchone()
-        if not customer:
-            return JsonResponse({'error': '客户不存在'}, status=404)
+    try:
+        # 获取客户信息
+        customer = Customer.objects.get(customer_id=customer_id)
+        
+        # 获取最新的信用评级
+        credit = customer.creditrating_set.order_by('-evaluation_date').first()
+        
+        # 获取贷款申请数量
+        loan_count = LoanApplication.objects.filter(customer=customer).count()
+        
+        # 获取最新的贷款状态
+        latest_loan_status = None
+        latest_loan = LoanApplication.objects.filter(customer=customer).order_by('-application_date').first()
+        if latest_loan:
+            latest_status = LoanStatus.objects.filter(loan=latest_loan).order_by('-processing_date').first()
+            if latest_status:
+                latest_loan_status = latest_status.status
 
-        cursor.execute("SELECT * FROM CreditRating WHERE customer_id = %s ORDER BY evaluation_date DESC LIMIT 1", (customer_id,))
-        credit = cursor.fetchone() or {}
-
-        cursor.execute("SELECT COUNT(*) as count FROM LoanApplication WHERE customer_id = %s", (customer_id,))
-        loan_count = cursor.fetchone()['count']
-
-        cursor.execute("""
-            SELECT status FROM LoanStatus
-            WHERE loan_id IN (SELECT loan_id FROM LoanApplication WHERE customer_id = %s)
-            ORDER BY processing_date DESC LIMIT 1
-        """, (customer_id,))
-        status = cursor.fetchone()
-
-    return JsonResponse({
-        'customer_name': customer['customer_name'],
-        'credit_score': credit.get('credit_score'),
-        'credit_score_range': credit.get('credit_score_range'),
-        'risk_score': credit.get('risk_score'),
-        'risk_score_range': credit.get('risk_score_range'),
-        'loan_count': loan_count,
-        'latest_loan_status': status['status'] if status else None,
-    })
+        return JsonResponse({
+            'customer_name': customer.customer_name,
+            'credit_score': credit.credit_score if credit else None,
+            'credit_score_range': credit.credit_score_range if credit else None,
+            'risk_score': credit.risk_score if credit else None,
+            'risk_score_range': credit.risk_score_range if credit else None,
+            'loan_count': loan_count,
+            'latest_loan_status': latest_loan_status,
+        })
+        
+    except Customer.DoesNotExist:
+        return JsonResponse({'error': '客户不存在'}, status=404)
